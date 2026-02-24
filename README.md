@@ -7,6 +7,7 @@ Ever wanted to use different username and email addresses for your commits at wo
 - ✅ **Easy Profile Management** - Create, edit, validate, and switch between multiple git user profiles from the status bar
 - ✅ **Private Profile Selections** - Profile selections are stored in user settings (local to your machine), not shared with your team
 - ✅ **Auto Profile Matching** - Automatically selects the right profile based on your repository's existing git config
+- ✅ **Commit Profile Prompt** - Optionally prompts you to select a profile before each commit when none is configured for the repository
 - ✅ **Multi-Folder Workspace Support** - Detects which git repository you're working in based on the active file, perfect for monorepos
 - ✅ **Visual Sync Indicators** - Status bar shows when your git config is out of sync with the selected profile
 - ✅ **Customizable Status Bar** - Choose `full` or `compact` display formats and `left` or `right` alignment to suit your workflow
@@ -146,6 +147,31 @@ Enable or disable automatic profile selection based on git config:
 ```
 
 When enabled, the extension automatically selects a profile if your current git config matches one of your saved profiles.
+
+### Prompt for Profile on Commit
+
+Reminds you to select a git user profile whenever no profile is configured for the repository:
+
+```json
+{
+  "gitConfigUser.promptForProfileOnCommit": true
+}
+```
+
+When enabled, the extension uses two complementary mechanisms:
+
+**On first stage (proactive warning)**  
+The moment you stage files in a repository that has no profile selected, a warning notification appears: *"No git user profile selected for '…'. Select one before committing."*  
+Clicking **Select Profile** opens the profile picker so you can set the right identity before you even write your commit message. The warning is shown once per staging session and resets after the staged changes are committed or cleared.
+
+**After each commit (post-commit action)**  
+If a commit is made while no profile is selected, VS Code shows a **"$(account) Set Git Profile"** button in the Source Control post-commit area so you can apply the correct profile for your next commit immediately.
+
+**Other behaviour**:
+- If a profile is **already selected**, neither prompt nor post-commit button appears.
+- If **no profiles are defined at all**, neither prompt nor post-commit button appears.
+
+> **Tip:** Enable this setting alongside `gitConfigUser.selectMatchedProfileAutomatically` to ensure you always commit under the right identity.
 
 ## Supported Scenarios
 

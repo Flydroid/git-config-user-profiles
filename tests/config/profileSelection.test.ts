@@ -323,4 +323,79 @@ describe('Profile Selection - Workspace Scope & Migration', () => {
       expect(oldValue).toBeUndefined();
     });
   });
+
+  describe('promptForProfileOnCommit setting', () => {
+    test('should default to false when not set', () => {
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+      const value = config.get<boolean>('promptForProfileOnCommit', false);
+      // Default value is false as declared in package.json
+      expect(value).toBe(false);
+    });
+
+    test('should return true when explicitly set to true', async () => {
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+      await config.update('promptForProfileOnCommit', true);
+
+      const value = config.get<boolean>('promptForProfileOnCommit');
+      expect(value).toBe(true);
+    });
+
+    test('should return false when explicitly set to false', async () => {
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+      await config.update('promptForProfileOnCommit', false);
+
+      const value = config.get<boolean>('promptForProfileOnCommit');
+      expect(value).toBe(false);
+    });
+
+    test('setting can be toggled true after being false without changing profile selection logic', async () => {
+      const workspaceUri = vscode.Uri.file('/test/commit-prompt-toggle');
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+
+      // Start disabled (default)
+      await config.update('promptForProfileOnCommit', false);
+      await config.update('workspaceProfileSelections', {});
+      await config.update('profiles', [
+        { id: 'p1', label: 'Work', userName: 'work', email: 'work@example.com', selected: false },
+      ]);
+
+      // No profile selected when disabled
+      expect(getSelectedProfileId(workspaceUri)).toBeUndefined();
+
+      // Toggle the setting on — staging-time notification will now appear on next staging event
+      await config.update('promptForProfileOnCommit', true);
+      expect(config.get<boolean>('promptForProfileOnCommit')).toBe(true);
+
+      // Profile selection state is unchanged by toggling the setting
+      expect(getSelectedProfileId(workspaceUri)).toBeUndefined();
+    });
+
+    test('no profile is considered absent when workspaceProfileSelections is empty', async () => {
+      const workspaceUri = vscode.Uri.file('/test/commit-prompt-repo');
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+      await config.update('workspaceProfileSelections', {});
+      await config.update('profiles', [
+        { id: 'p1', label: 'Work', userName: 'work', email: 'work@example.com', selected: false },
+      ]);
+      await config.update('promptForProfileOnCommit', true);
+
+      const selectedId = getSelectedProfileId(workspaceUri);
+      // No profile selected → the prompt should be triggered
+      expect(selectedId).toBeUndefined();
+    });
+
+    test('profile is considered present when workspaceProfileSelections has an entry', async () => {
+      const workspaceUri = vscode.Uri.file('/test/commit-prompt-repo-with-profile');
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+      await config.update('workspaceProfileSelections', { '/test/commit-prompt-repo-with-profile': 'p1' });
+      await config.update('profiles', [
+        { id: 'p1', label: 'Work', userName: 'work', email: 'work@example.com', selected: false },
+      ]);
+      await config.update('promptForProfileOnCommit', true);
+
+      const selectedId = getSelectedProfileId(workspaceUri);
+      // Profile IS selected → no prompt needed
+      expect(selectedId).toBe('p1');
+    });
+  });
 });
