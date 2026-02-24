@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { basename } from "path";
 import { CreateUserProfileCommand } from "./commands/CreateUserProfileCommand";
 import { DeleteUserProfileCommand } from "./commands/DeleteUserProfileCommand";
 import { EditUserProfileCommand } from "./commands/EditUserProfileCommand";
@@ -10,6 +11,7 @@ import { SyncVscProfilesWithGitConfig } from "./commands/SyncVscProfilesWithGitC
 import { ValidateProfileCommand } from "./commands/ValidateProfileCommand";
 import * as constants from "./constants";
 import { LogCategory } from "./constants";
+import { getProfilesInSettings, getSelectedProfileId } from "./config";
 import { ProfileStatusBar as statusBar } from "./controls";
 import { debounce } from "./util/debounce";
 import type { GitAPI, GitExtension, GitRepository } from "./util/gitApi";
@@ -149,67 +151,111 @@ function registerCommitProfileWatcher(context: vscode.ExtensionContext) {
 
   const gitAPI: GitAPI = gitExtension.exports.getAPI(1);
 
-  const subscribeToRepository = (repo: GitRepository) => {
-    if (!repo.onWillCommit) {
-      Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Repository does not expose onWillCommit; skipping", {
-        rootUri: repo.rootUri.fsPath,
-      });
-      return;
-    }
+  // ── Post-commit provider ────────────────────────────────────────────────
+  // After each commit, VS Code calls getCommands(). If no profile is set we
+  // return a "Set Git Profile" command so the user sees it in the post-commit
+  // action area and can fix their identity for future commits.
+  context.subscriptions.push(
+    gitAPI.registerPostCommitCommandsProvider({
+      getCommands(repo: GitRepository) {
+        if (!isEnabled()) {
+          return [];
+        }
+        const profiles = getProfilesInSettings();
+        if (profiles.length === 0) {
+          return [];
+        }
+        const selectedId = getSelectedProfileId(repo.rootUri);
+        const selectedProfile = selectedId ? profiles.find((p) => p.id === selectedId) : undefined;
+        if (selectedProfile) {
+          return [];
+        }
+        return [{ command: constants.CommandIds.PICK_USER_PROFILE, title: "$(account) Set Git Profile" }];
+      },
+    })
+  );
 
-    Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Subscribing to onWillCommit for repository", {
+  // ── Staging-time notification ───────────────────────────────────────────
+  // The VS Code git extension public API does not expose a pre-commit event
+  // that can block a commit. The closest proactive hook available is
+  // RepositoryState.onDidChange, which fires whenever the staging area
+  // (indexChanges) changes. We show a one-per-session warning the first time
+  // the user stages files without a profile selected.
+  const subscribeToRepository = (repo: GitRepository) => {
+    let indexWasEmpty = repo.state.indexChanges.length === 0;
+    let promptShownThisSession = false;
+
+    Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Subscribing to repository state changes", {
       rootUri: repo.rootUri.fsPath,
     });
 
     context.subscriptions.push(
-      repo.onWillCommit(async () => {
+      repo.state.onDidChange(async () => {
         if (!isEnabled()) {
+          // Re-sync state so we're ready if the setting is enabled later
+          indexWasEmpty = repo.state.indexChanges.length === 0;
+          promptShownThisSession = false;
           return;
         }
 
-        try {
-          const { getSelectedProfileId, getProfilesInSettings } = await import("./config");
-          const profiles = getProfilesInSettings();
+        const indexIsNowEmpty = repo.state.indexChanges.length === 0;
 
-          if (profiles.length === 0) {
-            Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "No profiles defined; skipping commit profile prompt", {});
-            return;
-          }
+        if (indexIsNowEmpty) {
+          // Staged changes were cleared (committed or unstaged) — reset for the
+          // next staging session so the prompt can appear again.
+          indexWasEmpty = true;
+          promptShownThisSession = false;
+          return;
+        }
 
-          const selectedId = getSelectedProfileId(repo.rootUri);
-          const selectedProfile = selectedId ? profiles.find((p) => p.id === selectedId) : undefined;
+        // Files are staged. Only act on the transition from empty → non-empty
+        // and only once per staging session to avoid spamming the user.
+        const isNewStagingEvent = indexWasEmpty && !promptShownThisSession;
+        indexWasEmpty = false;
 
-          if (selectedProfile) {
-            Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Profile already selected for this repository; skipping prompt", {
-              profile: selectedProfile.label,
-            });
-            return;
-          }
+        if (!isNewStagingEvent) {
+          return;
+        }
 
-          Logger.instance.logInfo("No profile selected for repository; prompting user before commit");
+        const profiles = getProfilesInSettings();
+        if (profiles.length === 0) {
+          Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "No profiles defined; skipping staging prompt", {});
+          return;
+        }
 
-          const profilePickResult = await vscode.commands.executeCommand<{ result?: unknown }>(constants.CommandIds.PICK_USER_PROFILE);
+        const selectedId = getSelectedProfileId(repo.rootUri);
+        const selectedProfile = selectedId ? profiles.find((p) => p.id === selectedId) : undefined;
 
-          // If the user cancelled (no profile in result), block the commit
-          if (!profilePickResult?.result) {
-            throw new Error("Commit cancelled: no git user profile selected. Pick a profile and try again.");
-          }
-        } catch (error) {
-          if (error instanceof Error && error.message.startsWith("Commit cancelled:")) {
-            throw error;
-          }
-          Logger.instance.logError("Error in commit profile prompt handler", error as Error);
+        if (selectedProfile) {
+          Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Profile already selected; no staging prompt needed", {
+            profile: selectedProfile.label,
+          });
+          return;
+        }
+
+        promptShownThisSession = true;
+        const repoName = basename(repo.rootUri.fsPath);
+        Logger.instance.logInfo(`Files staged in '${repoName}' but no profile selected; prompting user`);
+
+        const action = await vscode.window.showWarningMessage(
+          `No git user profile selected for '${repoName}'. Select one before committing.`,
+          "Select Profile",
+          "Dismiss"
+        );
+
+        if (action === "Select Profile") {
+          await vscode.commands.executeCommand(constants.CommandIds.PICK_USER_PROFILE);
         }
       })
     );
   };
 
-  // Subscribe to all existing repositories
+  // Subscribe to all repositories already open
   for (const repo of gitAPI.repositories) {
     subscribeToRepository(repo);
   }
 
-  // Subscribe to future repositories
+  // Subscribe to repositories opened later
   context.subscriptions.push(gitAPI.onDidOpenRepository(subscribeToRepository));
 
   Logger.instance.logInfo("Commit profile watcher registered");

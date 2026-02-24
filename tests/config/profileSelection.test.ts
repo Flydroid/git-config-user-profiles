@@ -362,7 +362,7 @@ describe('Profile Selection - Workspace Scope & Migration', () => {
       // No profile selected when disabled
       expect(getSelectedProfileId(workspaceUri)).toBeUndefined();
 
-      // Toggle the setting on — the watcher handler will now act on next commit
+      // Toggle the setting on — staging-time notification will now appear on next staging event
       await config.update('promptForProfileOnCommit', true);
       expect(config.get<boolean>('promptForProfileOnCommit')).toBe(true);
 

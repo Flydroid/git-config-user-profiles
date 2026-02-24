@@ -150,7 +150,7 @@ When enabled, the extension automatically selects a profile if your current git 
 
 ### Prompt for Profile on Commit
 
-Prompt you to select a git user profile before every commit when no profile is currently set for the repository:
+Reminds you to select a git user profile whenever no profile is configured for the repository:
 
 ```json
 {
@@ -158,10 +158,18 @@ Prompt you to select a git user profile before every commit when no profile is c
 }
 ```
 
-When enabled:
-- If a profile is **already selected** for the repository, the commit proceeds without interruption.
-- If **no profile is selected**, the profile picker is shown before the commit runs. Picking a profile applies it and lets the commit continue; dismissing the picker cancels the commit with a clear message.
-- If **no profiles are defined at all**, the commit proceeds uninterrupted.
+When enabled, the extension uses two complementary mechanisms:
+
+**On first stage (proactive warning)**  
+The moment you stage files in a repository that has no profile selected, a warning notification appears: *"No git user profile selected for '…'. Select one before committing."*  
+Clicking **Select Profile** opens the profile picker so you can set the right identity before you even write your commit message. The warning is shown once per staging session and resets after the staged changes are committed or cleared.
+
+**After each commit (post-commit action)**  
+If a commit is made while no profile is selected, VS Code shows a **"$(account) Set Git Profile"** button in the Source Control post-commit area so you can apply the correct profile for your next commit immediately.
+
+**Other behaviour**:
+- If a profile is **already selected**, neither prompt nor post-commit button appears.
+- If **no profiles are defined at all**, neither prompt nor post-commit button appears.
 
 > **Tip:** Enable this setting alongside `gitConfigUser.selectMatchedProfileAutomatically` to ensure you always commit under the right identity.
 
