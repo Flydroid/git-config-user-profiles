@@ -204,6 +204,11 @@
           "default": {},
           "scope": "application",
           "markdownDescription": "Stores the selected profile ID for each workspace folder. This is stored in user settings (not workspace settings) so selections remain private to each developer and are not shared with the team."
+        },
+        "gitConfigUser.promptForProfileOnCommit": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When enabled, prompts you to select a git user profile before each commit if no profile is currently configured for the repository."
         }
       }
     }

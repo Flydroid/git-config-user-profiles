@@ -12,6 +12,7 @@ import * as constants from "./constants";
 import { LogCategory } from "./constants";
 import { ProfileStatusBar as statusBar } from "./controls";
 import { debounce } from "./util/debounce";
+import type { GitAPI, GitExtension, GitRepository } from "./util/gitApi";
 import { invalidateWorkspaceStatusCache } from "./util/gitManager";
 import { Logger } from "./util/logger";
 
@@ -29,6 +30,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Now register event listeners before initial load
     registerForVSCodeEditorEvents(context);
+
+    // Register pre-commit profile watcher if the setting is enabled
+    registerCommitProfileWatcher(context);
 
     // Get the initial user profile after everything is set up
     // Call immediately to ensure status bar appears on activation
@@ -128,6 +132,88 @@ function registerForVSCodeEditorEvents(context: vscode.ExtensionContext) {
 
   // Removed onDidOpenTextDocument and onDidCloseTextDocument as they are redundant
   // These events are already covered by onDidChangeActiveTextEditor
+}
+
+function registerCommitProfileWatcher(context: vscode.ExtensionContext) {
+  const isEnabled = () => vscode.workspace.getConfiguration("gitConfigUser").get<boolean>("promptForProfileOnCommit") === true;
+
+  if (!isEnabled()) {
+    Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "promptForProfileOnCommit is disabled; skipping registration", {});
+    return;
+  }
+
+  const gitExtension = vscode.extensions.getExtension<GitExtension>("vscode.git");
+  if (!gitExtension) {
+    Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "vscode.git extension not found; skipping commit profile watcher", {});
+    return;
+  }
+
+  const gitAPI: GitAPI = gitExtension.exports.getAPI(1);
+
+  const subscribeToRepository = (repo: GitRepository) => {
+    if (!repo.onWillCommit) {
+      Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Repository does not expose onWillCommit; skipping", {
+        rootUri: repo.rootUri.fsPath,
+      });
+      return;
+    }
+
+    Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Subscribing to onWillCommit for repository", {
+      rootUri: repo.rootUri.fsPath,
+    });
+
+    context.subscriptions.push(
+      repo.onWillCommit(async () => {
+        if (!isEnabled()) {
+          return;
+        }
+
+        try {
+          const { getSelectedProfileId, getProfilesInSettings } = await import("./config");
+          const profiles = getProfilesInSettings();
+
+          if (profiles.length === 0) {
+            Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "No profiles defined; skipping commit profile prompt", {});
+            return;
+          }
+
+          const selectedId = getSelectedProfileId(repo.rootUri);
+          const selectedProfile = selectedId ? profiles.find((p) => p.id === selectedId) : undefined;
+
+          if (selectedProfile) {
+            Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "Profile already selected for this repository; skipping prompt", {
+              profile: selectedProfile.label,
+            });
+            return;
+          }
+
+          Logger.instance.logInfo("No profile selected for repository; prompting user before commit");
+
+          const profilePickResult = await vscode.commands.executeCommand<{ result?: unknown }>(constants.CommandIds.PICK_USER_PROFILE);
+
+          // If the user cancelled (no profile in result), block the commit
+          if (!profilePickResult?.result) {
+            throw new Error("Commit cancelled: no git user profile selected. Pick a profile and try again.");
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("Commit cancelled:")) {
+            throw error;
+          }
+          Logger.instance.logError("Error in commit profile prompt handler", error as Error);
+        }
+      })
+    );
+  };
+
+  // Subscribe to all existing repositories
+  for (const repo of gitAPI.repositories) {
+    subscribeToRepository(repo);
+  }
+
+  // Subscribe to future repositories
+  context.subscriptions.push(gitAPI.onDidOpenRepository(subscribeToRepository));
+
+  Logger.instance.logInfo("Commit profile watcher registered");
 }
 
 function createGitConfigFileWatcher() {

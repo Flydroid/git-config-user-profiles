@@ -33,4 +33,5 @@ export const LogCategory = {
   SETTINGS_CHANGE: "SettingsChange",
   STATUS_BAR: "StatusBar",
   WORKSPACE_STATUS: "WorkspaceStatus",
+  COMMIT_PROFILE_PROMPT: "CommitProfilePrompt",
 } as const;
