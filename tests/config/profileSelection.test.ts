@@ -348,6 +348,28 @@ describe('Profile Selection - Workspace Scope & Migration', () => {
       expect(value).toBe(false);
     });
 
+    test('setting can be toggled true after being false without changing profile selection logic', async () => {
+      const workspaceUri = vscode.Uri.file('/test/commit-prompt-toggle');
+      const config = vscode.workspace.getConfiguration('gitConfigUser');
+
+      // Start disabled (default)
+      await config.update('promptForProfileOnCommit', false);
+      await config.update('workspaceProfileSelections', {});
+      await config.update('profiles', [
+        { id: 'p1', label: 'Work', userName: 'work', email: 'work@example.com', selected: false },
+      ]);
+
+      // No profile selected when disabled
+      expect(getSelectedProfileId(workspaceUri)).toBeUndefined();
+
+      // Toggle the setting on — the watcher handler will now act on next commit
+      await config.update('promptForProfileOnCommit', true);
+      expect(config.get<boolean>('promptForProfileOnCommit')).toBe(true);
+
+      // Profile selection state is unchanged by toggling the setting
+      expect(getSelectedProfileId(workspaceUri)).toBeUndefined();
+    });
+
     test('no profile is considered absent when workspaceProfileSelections is empty', async () => {
       const workspaceUri = vscode.Uri.file('/test/commit-prompt-repo');
       const config = vscode.workspace.getConfiguration('gitConfigUser');

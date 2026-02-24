@@ -31,7 +31,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Now register event listeners before initial load
     registerForVSCodeEditorEvents(context);
 
-    // Register pre-commit profile watcher if the setting is enabled
+    // Register pre-commit profile watcher (responds dynamically to setting changes)
     registerCommitProfileWatcher(context);
 
     // Get the initial user profile after everything is set up
@@ -137,10 +137,9 @@ function registerForVSCodeEditorEvents(context: vscode.ExtensionContext) {
 function registerCommitProfileWatcher(context: vscode.ExtensionContext) {
   const isEnabled = () => vscode.workspace.getConfiguration("gitConfigUser").get<boolean>("promptForProfileOnCommit") === true;
 
-  if (!isEnabled()) {
-    Logger.instance.logDebug(LogCategory.COMMIT_PROFILE_PROMPT, "promptForProfileOnCommit is disabled; skipping registration", {});
-    return;
-  }
+  // Always register the watcher unconditionally so that toggling the setting on
+  // takes effect immediately without requiring a VS Code restart.
+  // The isEnabled() guard inside each handler ensures no-op behaviour when disabled.
 
   const gitExtension = vscode.extensions.getExtension<GitExtension>("vscode.git");
   if (!gitExtension) {

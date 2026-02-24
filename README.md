@@ -7,6 +7,7 @@ Ever wanted to use different username and email addresses for your commits at wo
 - ✅ **Easy Profile Management** - Create, edit, validate, and switch between multiple git user profiles from the status bar
 - ✅ **Private Profile Selections** - Profile selections are stored in user settings (local to your machine), not shared with your team
 - ✅ **Auto Profile Matching** - Automatically selects the right profile based on your repository's existing git config
+- ✅ **Commit Profile Prompt** - Optionally prompts you to select a profile before each commit when none is configured for the repository
 - ✅ **Multi-Folder Workspace Support** - Detects which git repository you're working in based on the active file, perfect for monorepos
 - ✅ **Visual Sync Indicators** - Status bar shows when your git config is out of sync with the selected profile
 - ✅ **Customizable Status Bar** - Choose `full` or `compact` display formats and `left` or `right` alignment to suit your workflow
@@ -146,6 +147,23 @@ Enable or disable automatic profile selection based on git config:
 ```
 
 When enabled, the extension automatically selects a profile if your current git config matches one of your saved profiles.
+
+### Prompt for Profile on Commit
+
+Prompt you to select a git user profile before every commit when no profile is currently set for the repository:
+
+```json
+{
+  "gitConfigUser.promptForProfileOnCommit": true
+}
+```
+
+When enabled:
+- If a profile is **already selected** for the repository, the commit proceeds without interruption.
+- If **no profile is selected**, the profile picker is shown before the commit runs. Picking a profile applies it and lets the commit continue; dismissing the picker cancels the commit with a clear message.
+- If **no profiles are defined at all**, the commit proceeds uninterrupted.
+
+> **Tip:** Enable this setting alongside `gitConfigUser.selectMatchedProfileAutomatically` to ensure you always commit under the right identity.
 
 ## Supported Scenarios
 
